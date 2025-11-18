@@ -27,7 +27,6 @@ coverage/
 *.local
 
 # Build output
-dist/
 build/
 out/
 
@@ -40,5 +39,5 @@ logs/
 .temp/
 
 # Optional: lockfile backups
-package-lock.json.*
+package-lock.json
 yarn.lock.*
