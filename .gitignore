@@ -26,10 +26,6 @@ coverage/
 .env*
 *.local
 
-# Build output
-build/
-out/
-
 # Logs
 *.log
 logs/

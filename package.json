@@ -1,6 +1,6 @@
 {
   "name": "ion-server-api",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "High-performance TCP client for IonTrader — ultra-low latency server-to-server integration with real-time quotes, trade events, balance updates, and full symbol/user management.",
   "main": "index.js",
   "scripts": {
