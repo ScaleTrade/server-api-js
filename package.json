@@ -1,6 +1,6 @@
 {
   "name": "ion-server-api",
-  "version": "0.1.5",
+  "version": "1.0.0",
   "description": "High-performance TCP client for IonTrader — ultra-low latency server-to-server integration with real-time quotes, trade events, balance updates, and full symbol/user management.",
   "main": "index.js",
   "scripts": {
@@ -30,7 +30,10 @@
     "low-latency",
     "fintech",
     "brokerage",
-    "nodejs"
+    "nodejs",
+    "realtime",
+    "high-frequency-trading",
+    "hft"
   ],
   "categories": [
     "Finance",
@@ -45,11 +48,8 @@
     "url": "https://github.com/iontrader/server-api-js/issues"
   },
   "license": "MIT",
-  "dependencies": {
-    "events": "^3.3.0",
-    "jsonrepair": "^3.8.0",
-    "net": "^1.0.2",
-    "shortid": "^2.2.16"
+  "engines": {
+    "node": ">=14.17.0"
   },
   "homepage": "https://github.com/iontrader/server-api-js#readme"
 }

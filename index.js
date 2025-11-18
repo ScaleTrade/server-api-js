@@ -2,21 +2,43 @@
  * ion-server-api
  * High-performance TCP client for IonTrader platform
  * Supports real-time quotes, trades, balance, user & symbol events
+ * Zero external dependencies
  */
 
 const net = require('net');
 const events = require('events');
-const { jsonrepair } = require('jsonrepair');
-const shortid = require('shortid');
-
-// Configure shortid for safe extID generation
-shortid.characters('0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ$@');
+const crypto = require('crypto');
 
 const RECONNECT_DELAY_MS = 4000;
 const RESPONSE_TIMEOUT_MS = 30000;
 const AUTO_SUBSCRIBE_DELAY_MS = 500;
 const SOCKET_KEEPALIVE = true;
 const SOCKET_NODELAY = true;
+
+/**
+ * Generate a short unique ID for extID
+ * @returns {string} 12-character random ID
+ */
+function generateExtID() {
+    if (crypto.randomUUID) {
+        return crypto.randomUUID().replace(/-/g, '').substring(0, 12);
+    }
+    // Fallback for older Node versions
+    return crypto.randomBytes(6).toString('hex');
+}
+
+/**
+ * Simple JSON repair - removes common issues
+ * @param {string} str - Potentially malformed JSON string
+ * @returns {string} Cleaned JSON string
+ */
+function jsonRepair(str) {
+    return str
+        .replace(/[\n\r\t]/g, '')   // Remove whitespace
+        .replace(/,\s*}/g, '}')     // Remove trailing commas in objects
+        .replace(/,\s*]/g, ']')     // Remove trailing commas in arrays
+        .trim();
+}
 
 class IONPlatform {
     /**
@@ -46,6 +68,7 @@ class IONPlatform {
         this.emitter = emitter || new events.EventEmitter();
         this.autoSubscribeChannels = Array.isArray(options.autoSubscribe) ? options.autoSubscribe : [];
         this.seenNotifyTokens = new Set();
+        this.pendingRequests = new Map();
 
         this.createSocket();
 
@@ -76,6 +99,7 @@ class IONPlatform {
             .on('connect', () => {
                 console.info(`ION [${this.name}] Connected to ${this.url}`);
                 this.connected = true;
+                this.errorCount = 0;
                 this.seenNotifyTokens.clear();
 
                 // Auto-subscribe after connection
@@ -97,13 +121,21 @@ class IONPlatform {
                 if (this.alive) this.reconnect();
             })
             .on('error', (err) => {
-                console.error(`ION [${this.name}] Socket error:`, err.message);
-                if (this.alive) this.reconnect();
+                this.errorCount++;
+                console.error(`ION [${this.name}] Socket error (count: ${this.errorCount}):`, err.message);
+
+                // Don't reconnect too aggressively on repeated errors
+                if (this.errorCount < 10 && this.alive) {
+                    this.reconnect();
+                } else if (this.errorCount >= 10) {
+                    console.error(`ION [${this.name}] Too many errors, stopping reconnection attempts`);
+                    this.alive = false;
+                }
             })
             .on('data', (data) => this.handleData(data));
 
         const [host, port] = this.url.split(':');
-        this.socket.connect({ host, port });
+        this.socket.connect({ host, port: parseInt(port) });
     }
 
     /**
@@ -125,10 +157,10 @@ class IONPlatform {
 
             let parsed;
             try {
-                const cleaned = token.replace(/[\n\r\t]/g, '').trim();
-                parsed = JSON.parse(jsonrepair(cleaned));
+                const cleaned = jsonRepair(token);
+                parsed = JSON.parse(cleaned);
             } catch (e) {
-                console.error(`ION [${this.name}] Parse error:`, token, e.message);
+                console.error(`ION [${this.name}] Parse error:`, token.substring(0, 100), e.message);
                 continue;
             }
 
@@ -157,15 +189,25 @@ class IONPlatform {
                     const [
                         , message, description, token, status, level, user_id, create_time, dataOrCode, code
                     ] = parsed;
+
+                    // Skip duplicates
+                    if (this.seenNotifyTokens.has(token)) continue;
+                    this.seenNotifyTokens.add(token);
+
+                    // Limit size of seen tokens set
+                    if (this.seenNotifyTokens.size > 10000) {
+                        const firstToken = this.seenNotifyTokens.values().next().value;
+                        this.seenNotifyTokens.delete(firstToken);
+                    }
+
                     const isObject = dataOrCode && typeof dataOrCode === 'object';
                     const notify = {
                         message, description, token, status, level, user_id,
                         create_time: create_time ? new Date(create_time * 1000) : null,
                         data: isObject ? dataOrCode : {},
-                        code: Number(isObject ? code : dataOrCode)
+                        code: Number(isObject ? code : dataOrCode) || 0
                     };
-                    if (this.seenNotifyTokens.has(token)) continue;
-                    this.seenNotifyTokens.add(token);
+
                     this.emit('notify', notify);
                     this.emit(`notify:${level}`, notify);
                     continue;
@@ -204,7 +246,18 @@ class IONPlatform {
 
             // === COMMAND RESPONSES (extID) ===
             if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.extID) {
-                this.emit(parsed.extID, parsed);
+                const extID = parsed.extID;
+
+                // Resolve pending promise
+                if (this.pendingRequests.has(extID)) {
+                    const { resolve, timeout } = this.pendingRequests.get(extID);
+                    clearTimeout(timeout);
+                    this.pendingRequests.delete(extID);
+                    resolve(parsed);
+                } else {
+                    // Also emit for legacy compatibility
+                    this.emit(extID, parsed);
+                }
                 continue;
             }
 
@@ -231,17 +284,17 @@ class IONPlatform {
      */
     async callCommand(command, data = {}) {
         const payload = { command, data };
-        if (!payload.extID) payload.extID = shortid.generate();
+        if (!payload.extID) payload.extID = generateExtID();
         return this.send(payload);
     }
 
     /**
-     * Low-level send (legacy format)
+     * Low-level send (improved with promise-based response handling)
      * @param {Object} payload - { command, data, extID?, __token }
      * @returns {Promise<Object>}
      */
     async send(payload) {
-        if (!payload.extID) payload.extID = shortid.generate();
+        if (!payload.extID) payload.extID = generateExtID();
         payload.__token = this.token;
 
         if (!this.connected) {
@@ -250,18 +303,18 @@ class IONPlatform {
 
         return new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
+                this.pendingRequests.delete(payload.extID);
                 reject(new Error(`ION [${this.name}] Timeout for extID: ${payload.extID}`));
             }, RESPONSE_TIMEOUT_MS);
 
-            this.emitter.once(payload.extID, (resp) => {
-                clearTimeout(timeout);
-                resolve(resp);
-            });
+            // Store in map instead of relying on event emitter
+            this.pendingRequests.set(payload.extID, { resolve, reject, timeout });
 
             try {
                 this.socket.write(JSON.stringify(payload) + "\r\n");
             } catch (err) {
                 clearTimeout(timeout);
+                this.pendingRequests.delete(payload.extID);
                 reject(err);
             }
         });
@@ -296,11 +349,21 @@ class IONPlatform {
         this.socket.destroy();
         this.seenNotifyTokens.clear();
 
+        // Clear pending requests with error
+        for (const [extID, { reject, timeout }] of this.pendingRequests.entries()) {
+            clearTimeout(timeout);
+            reject(new Error(`ION [${this.name}] Connection lost`));
+        }
+        this.pendingRequests.clear();
+
+        // Exponential backoff with max delay
+        const delay = Math.min(RECONNECT_DELAY_MS * Math.pow(1.5, this.errorCount - 1), 30000);
+
         this._reconnectTimer = setTimeout(() => {
             delete this._reconnectTimer;
-            console.info(`ION [${this.name}] Reconnecting...`);
+            console.info(`ION [${this.name}] Reconnecting... (attempt ${this.errorCount + 1})`);
             this.createSocket();
-        }, RECONNECT_DELAY_MS);
+        }, delay);
     }
 
     /**
@@ -310,7 +373,23 @@ class IONPlatform {
         this.alive = false;
         if (this._reconnectTimer) clearTimeout(this._reconnectTimer);
         this.seenNotifyTokens.clear();
+
+        // Clear all pending requests
+        for (const [extID, { reject, timeout }] of this.pendingRequests.entries()) {
+            clearTimeout(timeout);
+            reject(new Error(`ION [${this.name}] Platform destroyed`));
+        }
+        this.pendingRequests.clear();
+
         this.socket.destroy();
+    }
+
+    /**
+     * Get connection status
+     * @returns {boolean}
+     */
+    isConnected() {
+        return this.connected;
     }
 }
 
