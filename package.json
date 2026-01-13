@@ -1,6 +1,6 @@
 {
   "name": "nordentrader-server-api",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "High-performance TCP client for NordenTrader — ultra-low latency server-to-server integration with real-time quotes, trade events, balance updates, and full symbol/user management.",
   "main": "index.js",
   "scripts": {

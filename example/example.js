@@ -1,168 +1,230 @@
 /**
- * NordenTrader API Example
- * Demonstrates full event handling and subscribe/unsubscribe
+ * Universal test script for x32/x64 compatibility
  */
 
 const NTPlatform = require('../index');
 
+// Configuration
 const url = 'example.host:8080'; // Host and port for the NordenTrader platform
 const name = 'NordenTrader-example'; // Platform name
 const token = 'your-jwt-auth-token'; // Authentication token
 
+// System info
+console.log('\n========== SYSTEM INFO ==========');
+console.log(`Node version: ${process.version}`);
+console.log(`Architecture: ${process.arch}`);
+console.log(`Platform: ${process.platform}`);
+console.log(`Memory: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB used`);
+console.log('=================================\n');
+
 const platform = new NTPlatform(
     url,
     name,
-    {
-        autoSubscribe: ['EURUSD', 'BTCUSD']
-    },
+    { autoSubscribe: ['EURUSD'] },
     null,
     null,
     token
 );
 
-// === EVENTS ===
+// Test counters
+const testResults = {
+    quotes: 0,
+    notifies: 0,
+    commands: 0,
+    errors: 0,
+    startTime: Date.now()
+};
 
-// Quote counter
-let quoteCount = 0;
-const quoteStats = {};
-
+// Quote handler
 platform.emitter.on('quote', (q) => {
-    quoteCount++;
-    quoteStats[q.symbol] = (quoteStats[q.symbol] || 0) + 1;
+    testResults.quotes++;
 
-    // Print every 10th quote to reduce spam
-    if (quoteCount % 10 === 0) {
-        console.log(`[QUOTE #${quoteCount}] ${q.symbol}: ${q.bid}/${q.ask}`);
+    if (testResults.quotes === 1) {
+        console.log(`✓ First quote received: ${q.symbol} ${q.bid}/${q.ask}`);
+    }
+
+    // Check for number integrity issues (x32 problem indicator)
+    if (!Number.isFinite(q.bid) || !Number.isFinite(q.ask)) {
+        console.error(`❌ Invalid number in quote: bid=${q.bid}, ask=${q.ask}`);
+        testResults.errors++;
     }
 });
 
-platform.emitter.on('quote:EURUSD', (q) => {
-    // Specific symbol handler
-});
-
+// Notify handler
 platform.emitter.on('notify', (n) => {
-    const level = { 10: 'INFO', 20: 'WARN', 30: 'ERROR', 40: 'PROMO' }[n.level] || n.level;
-    console.log(`[NOTIFY:${level}] ${n.message}`);
-    if (n.description) console.log(`  └─ ${n.description}`);
+    testResults.notifies++;
+    console.log(`✓ Notify received: ${n.message}`);
 });
 
-platform.emitter.on('trade:event', (e) => {
-    const d = e.data;
-    const cmd = d.cmd === 0 ? 'BUY' : d.cmd === 1 ? 'SELL' : 'UNKNOWN';
-    console.log(`[TRADE #${d.order}] ${cmd} ${d.volume} ${d.symbol} @ ${d.open_price} (P&L: ${d.profit})`);
-});
-
-platform.emitter.on('balance:event', (e) => {
-    const d = e.data;
-    console.log(`[BALANCE] ${d.login} | Balance: ${d.balance} | Equity: ${d.equity} | Margin: ${d.margin_level}%`);
-});
-
-platform.emitter.on('user:event', (e) => {
-    const d = e.data;
-    console.log(`[USER] ${d.login} | ${d.name} | Group: ${d.group} | Leverage: ${d.leverage}`);
-});
-
-platform.emitter.on('symbol:event', (e) => {
-    const d = e.data;
-    console.log(`[SYMBOL] ${d.symbol} updated | Spread: ${d.spread || 'N/A'}`);
-});
-
-platform.emitter.on('group:event', (e) => {
-    const d = e.data;
-    console.log(`[GROUP] ${d.group} | Leverage: ${d.default_leverage || 'N/A'}`);
-});
-
-platform.emitter.on('symbols:reindex', (list) => {
-    console.log(`[REINDEX] ${list.length} symbols updated`);
-});
-
-platform.emitter.on('security:reindex', (list) => {
-    console.log(`[SECURITY] ${list.length} security groups updated`);
-});
-
-// === COMMANDS ===
+// Connection test
 setTimeout(async () => {
     if (!platform.isConnected()) {
-        console.error('❌ Not connected');
-        return;
+        console.error('❌ Connection failed after 3s');
+        process.exit(1);
     }
 
+    console.log('✓ Connection established\n');
+
+    // Run command tests
+    await runCommandTests();
+
+}, 3000);
+
+async function runCommandTests() {
+    console.log('========== COMMAND TESTS ==========\n');
+
+    // Test 1: Subscribe
     try {
-        // Subscribe
-        console.log('\n📡 Subscribing to GBPUSD...');
-        const subResp = await platform.subscribe('GBPUSD');
-        console.log('✓ Subscribed:', subResp.data);
+        console.log('Test 1: Subscribe to GBPUSD...');
+        const start = Date.now();
+        const result = await platform.subscribe('GBPUSD');
+        const duration = Date.now() - start;
 
-        // Create user with error handling
-        console.log('\n👤 Creating user...');
-        const email = `john${Date.now()}@example.com`;
-        const user = await platform.AddUser({
-            group: "TestGroup",
-            name: "John Doe",
-            password: "pass123",
-            leverage: 100,
-            enable: 1,
-            email
-        });
+        console.log(`✓ Subscribe OK (${duration}ms)`);
+        console.log(`  Response:`, result);
+        testResults.commands++;
 
-        if (user.status === 200) {
-            console.log(`✓ User created: Login ${user.data.login}, Leverage: ${user.data.leverage}`);
-        } else {
-            console.log(`✗ User creation failed:`, user);
+        if (duration > 5000) {
+            console.warn(`⚠️  Slow response detected (${duration}ms) - potential x32 issue`);
         }
-
-        // Test command that doesn't exist (error handling)
-        try {
-            await platform.NonExistentCommand({ test: 1 });
-        } catch (err) {
-            console.log('✓ Error handling works:', err.message);
-        }
-
-        // Unsubscribe after 10s
-        setTimeout(async () => {
-            console.log('\n📡 Unsubscribing from BTCUSD...');
-            const unsubResp = await platform.unsubscribe('BTCUSD');
-            console.log('✓ Unsubscribed:', unsubResp.data);
-
-            // Print statistics
-            console.log('\n📊 Quote Statistics:');
-            console.log(`Total quotes received: ${quoteCount}`);
-            Object.entries(quoteStats).forEach(([symbol, count]) => {
-                console.log(`  ${symbol}: ${count} quotes`);
-            });
-        }, 10000);
-
     } catch (err) {
-        console.error('❌ Command error:', err.message);
+        console.error('❌ Subscribe failed:', err.message);
+        testResults.errors++;
     }
 
-    // Auto shutdown
-    setTimeout(() => {
-        console.log('\n👋 Shutting down...');
-        console.log(`📊 Final stats: ${quoteCount} total quotes received`);
-        platform.destroy();
-        process.exit(0);
-    }, 30000);
-}, 2000);
+    // Test 2: Large number handling
+    try {
+        console.log('\nTest 2: Testing large numbers...');
+        const largeNum = 999999999999;
+        console.log(`  Testing number: ${largeNum}`);
+        console.log(`  Is safe integer: ${Number.isSafeInteger(largeNum)}`);
+        console.log(`  Max safe integer: ${Number.MAX_SAFE_INTEGER}`);
 
-// Graceful shutdown on Ctrl+C
-process.on('SIGINT', () => {
-    console.log('\n\n⚠️  Caught interrupt signal');
-    console.log(`📊 Total quotes: ${quoteCount}`);
+        if (process.arch === 'ia32' || process.arch === 'x32') {
+            console.log('  ⚠️  Running on 32-bit architecture - numbers limited');
+        }
+    } catch (err) {
+        console.error('❌ Number test failed:', err.message);
+        testResults.errors++;
+    }
+
+    // Test 3: Multiple rapid commands (stress test)
+    try {
+        console.log('\nTest 3: Rapid command stress test...');
+        const start = Date.now();
+        const promises = [];
+
+        for (let i = 0; i < 5; i++) {
+            promises.push(platform.subscribe(`TEST${i}`));
+        }
+
+        const results = await Promise.allSettled(promises);
+        const duration = Date.now() - start;
+        const successful = results.filter(r => r.status === 'fulfilled').length;
+
+        console.log(`✓ Stress test complete (${duration}ms)`);
+        console.log(`  Successful: ${successful}/5`);
+        testResults.commands += successful;
+
+        if (duration > 10000) {
+            console.warn(`⚠️  Very slow responses - check x32 compatibility`);
+        }
+    } catch (err) {
+        console.error('❌ Stress test failed:', err.message);
+        testResults.errors++;
+    }
+
+    // Test 4: Memory check
+    console.log('\nTest 4: Memory usage check...');
+    const memUsage = process.memoryUsage();
+    console.log(`  Heap used: ${Math.round(memUsage.heapUsed / 1024 / 1024)}MB`);
+    console.log(`  Heap total: ${Math.round(memUsage.heapTotal / 1024 / 1024)}MB`);
+
+    if (memUsage.heapUsed > 100 * 1024 * 1024) {
+        console.warn('  ⚠️  High memory usage detected');
+    } else {
+        console.log('  ✓ Memory usage normal');
+    }
+
+    // Wait for quotes
+    console.log('\n========== WAITING FOR QUOTES ==========');
+    console.log('Collecting data for 15 seconds...\n');
+
+    setTimeout(() => {
+        printFinalReport();
+    }, 15000);
+}
+
+function printFinalReport() {
+    const duration = (Date.now() - testResults.startTime) / 1000;
+
+    console.log('\n========== FINAL REPORT ==========');
+    console.log(`Duration: ${duration.toFixed(1)}s`);
+    console.log(`Architecture: ${process.arch}`);
+    console.log(`\nResults:`);
+    console.log(`  Quotes received: ${testResults.quotes}`);
+    console.log(`  Notifies received: ${testResults.notifies}`);
+    console.log(`  Commands executed: ${testResults.commands}`);
+    console.log(`  Errors: ${testResults.errors}`);
+
+    const qps = (testResults.quotes / duration).toFixed(2);
+    console.log(`\nPerformance:`);
+    console.log(`  Quotes per second: ${qps}`);
+
+    const memUsage = process.memoryUsage();
+    console.log(`\nMemory:`);
+    console.log(`  Heap used: ${Math.round(memUsage.heapUsed / 1024 / 1024)}MB`);
+    console.log(`  RSS: ${Math.round(memUsage.rss / 1024 / 1024)}MB`);
+
+    console.log('\n========== DIAGNOSTICS ==========');
+
+    if (testResults.quotes === 0) {
+        console.error('❌ CRITICAL: No quotes received - connection issue');
+    } else if (testResults.quotes < 10) {
+        console.warn('⚠️  WARNING: Very few quotes - possible timeout issue');
+    } else {
+        console.log('✓ Quote reception working normally');
+    }
+
+    if (testResults.errors > 0) {
+        console.error(`❌ ${testResults.errors} errors detected - check logs above`);
+    } else {
+        console.log('✓ No errors detected');
+    }
+
+    if (process.arch === 'ia32' || process.arch === 'x32') {
+        console.log('\n⚠️  Running on 32-bit architecture');
+        console.log('   If experiencing issues, check:');
+        console.log('   - Number overflow in timestamps');
+        console.log('   - Buffer size limits');
+        console.log('   - setTimeout precision');
+    }
+
+    console.log('\n=================================\n');
+
     platform.destroy();
-    process.exit(0);
+
+    // Exit with appropriate code
+    if (testResults.errors > 0 || testResults.quotes === 0) {
+        console.error('❌ Tests FAILED');
+        process.exit(1);
+    } else {
+        console.log('✓ All tests PASSED');
+        process.exit(0);
+    }
+}
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+    console.log('\n\n⚠️  Interrupted by user');
+    printFinalReport();
 });
 
-// Handle uncaught errors
 process.on('uncaughtException', (err) => {
-    console.error('💥 Uncaught exception:', err);
+    console.error('\n💥 Uncaught exception:', err);
+    testResults.errors++;
     platform.destroy();
     process.exit(1);
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('💥 Unhandled rejection at:', promise, 'reason:', reason);
-});
-
-console.log('\n🚀 NordenTrader Platform Example Started');
-console.log('Press Ctrl+C to stop\n');
+console.log('🚀 Starting universal compatibility test...\n');

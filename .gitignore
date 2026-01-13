@@ -33,3 +33,5 @@ logs/
 # Temporary files
 .tmp/
 .temp/
+test/
+nodejs-x32/
