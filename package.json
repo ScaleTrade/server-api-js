@@ -1,6 +1,6 @@
 {
   "name": "scaletrade-server-api",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "High-performance TCP client for ScaleTrade — ultra-low latency server-to-server integration with real-time quotes, trade events, balance updates, and full symbol/user management.",
   "main": "index.js",
   "scripts": {
