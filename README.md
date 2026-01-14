@@ -1,19 +1,19 @@
 <div align="center">
 
-# NordenTrader Server Api JS
+# ScaleTrade Server Api JS
 
-**Ultra-low latency Node.js TCP client for [NordenTrader](https://nordentrader.com)**  
+**Ultra-low latency Node.js TCP client for [ScaleTrade](https://scaletrade.com)**  
 Real-time market data, trade execution, balance & user management via TCP.
 
-![npm](https://img.shields.io/npm/v/nordentrader-server-api?color=green)
+![npm](https://img.shields.io/npm/v/scaletrade-server-api?color=green)
 ![Node.js](https://img.shields.io/badge/node-%3E%3D14.17-blue)
 ![License](https://img.shields.io/badge/license-MIT-blue)
-![Downloads](https://img.shields.io/npm/dm/nordentrader-server-api)
+![Downloads](https://img.shields.io/npm/dm/scaletrade-server-api)
 ![Zero Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)
 
 > **Server-to-Server (S2S) integration** — ideal for brokers, CRMs, HFT bots, and back-office systems.
 
-[Documentation](https://nordentrader.com/tcp) · [Examples](./example) · [Report Bug](https://github.com/nordentrader/server-api-js/issues)
+[Documentation](https://scaletrade.com/tcp) · [Examples](./example) · [Report Bug](https://github.com/scaletrade/server-api-js/issues)
 
 </div>
 
@@ -51,7 +51,7 @@ Real-time market data, trade execution, balance & user management via TCP.
 ## Installation
 
 ```bash
-npm install nordentrader-server-api
+npm install scaletrade-server-api
 ```
 
 **Requirements:**
@@ -63,11 +63,11 @@ npm install nordentrader-server-api
 ## Quick Start
 
 ```js
-const NTPlatform = require('nordentrader-server-api');
+const STPlatform = require('scaletrade-server-api');
 
 // Initialize with minimal config
-const platform = new NTPlatform(
-  'broker.nordentrader.com:8080', // Host:port
+const platform = new STPlatform(
+  'broker.scaletrade.com:8080', // Host:port
   'my-trading-bot',
   { autoSubscribe: ['EURUSD', 'BTCUSD'] },
   null, null,
@@ -227,8 +227,8 @@ See [`example/example.js`](./example/example.js)
 Your existing code will work without modifications:
 
 ```js
-const NTPlatform = require('nordentrader-server-api');
-const platform = new NTPlatform(/* ... */);
+const STPlatform = require('scaletrade-server-api');
+const platform = new STPlatform(/* ... */);
 ```
 
 ---
@@ -241,7 +241,7 @@ const platform = new NTPlatform(/* ... */);
 const EventEmitter = require('events');
 const customEmitter = new EventEmitter();
 
-const platform = new NTPlatform(
+const platform = new STPlatform(
   url, name, options, 
   null, null, token,
   customEmitter  // Use custom emitter
@@ -300,9 +300,9 @@ console.log('Listeners:', platform.emitter.listenerCount('quote'));
 
 ## Documentation
 
-- **TCP API**: [https://nordentrader.com/tcp](https://nordentrader.com/tcp)
-- **Client API**: [https://nordentrader.com/client-api](https://nordentrader.com/client-api)
-- **FIX API**: [https://nordentrader.com/fix-api](https://nordentrader.com/fix-api)
+- **TCP API**: [https://scaletrade.com/tcp](https://scaletrade.com/tcp)
+- **Client API**: [https://scaletrade.com/client-api](https://scaletrade.com/client-api)
+- **FIX API**: [https://scaletrade.com/fix-api](https://scaletrade.com/fix-api)
 
 ---
 
@@ -315,6 +315,6 @@ See [`LICENSE`](LICENSE) for more information.
 
 **Made with passion for high-frequency trading**
 
-[nordentrader.com](https://nordentrader.com) · [GitHub](https://github.com/nordentrader/server-api-js)
+[scaletrade.com](https://scaletrade.com) · [GitHub](https://github.com/scaletrade/server-api-js)
 
 </div>

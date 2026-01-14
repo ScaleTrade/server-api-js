@@ -1,6 +1,6 @@
 /**
- * nordentrader-server-api (Fixed for x32/x64 compatibility)
- * High-performance TCP client for NordenTrader platform
+ * scaletrade-server-api (Fixed for x32/x64 compatibility)
+ * High-performance TCP client for ScaleTrade platform
  */
 
 const net = require('net');
@@ -79,7 +79,7 @@ function jsonRepair(str) {
         .trim();
 }
 
-class NTPlatform {
+class STPlatform {
     constructor(url, name, options = {}, broker, ctx, token, emitter = null) {
         this.name = name;
         this.url = url;
@@ -456,4 +456,4 @@ class NTPlatform {
     }
 }
 
-module.exports = NTPlatform;
+module.exports = STPlatform;

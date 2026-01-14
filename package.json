@@ -1,7 +1,7 @@
 {
-  "name": "nordentrader-server-api",
-  "version": "1.0.6",
-  "description": "High-performance TCP client for NordenTrader — ultra-low latency server-to-server integration with real-time quotes, trade events, balance updates, and full symbol/user management.",
+  "name": "scaletrade-server-api",
+  "version": "1.0.7",
+  "description": "High-performance TCP client for ScaleTrade — ultra-low latency server-to-server integration with real-time quotes, trade events, balance updates, and full symbol/user management.",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -9,10 +9,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nordentrader/server-api-js.git"
+    "url": "git+https://github.com/scaletrade/server-api-js.git"
   },
   "keywords": [
-    "NordenTrader",
+    "ScaleTrade",
     "trading",
     "tcp",
     "api",
@@ -41,14 +41,14 @@
   ],
   "author": {
     "name": "MarSer",
-    "url": "https://nordentrader.com/"
+    "url": "https://scaletrade.com/"
   },
   "bugs": {
-    "url": "https://github.com/nordentrader/server-api-js/issues"
+    "url": "https://github.com/scaletrade/server-api-js/issues"
   },
   "license": "MIT",
   "engines": {
     "node": ">=14.17.0"
   },
-  "homepage": "https://github.com/nordentrader/server-api-js#readme"
+  "homepage": "https://github.com/scaletrade/server-api-js#readme"
 }

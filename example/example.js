@@ -2,11 +2,11 @@
  * Universal test script for x32/x64 compatibility
  */
 
-const NTPlatform = require('../index');
+const STPlatform = require('../index');
 
 // Configuration
-const url = 'example.host:8080'; // Host and port for the NordenTrader platform
-const name = 'NordenTrader-example'; // Platform name
+const url = 'example.host:8080'; // Host and port for the ScaleTrade platform
+const name = 'ScaleTrade-example'; // Platform name
 const token = 'your-jwt-auth-token'; // Authentication token
 
 // System info
@@ -17,7 +17,7 @@ console.log(`Platform: ${process.platform}`);
 console.log(`Memory: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB used`);
 console.log('=================================\n');
 
-const platform = new NTPlatform(
+const platform = new STPlatform(
     url,
     name,
     { autoSubscribe: ['EURUSD'] },
