@@ -12,7 +12,7 @@ const RESPONSE_TIMEOUT_MS = 30000;
 const AUTO_SUBSCRIBE_DELAY_MS = 500;
 const SOCKET_KEEPALIVE = true;
 const SOCKET_NODELAY = true;
-const MAX_BUFFER_SIZE = 10 * 1024 * 1024; // 10MB limit for x32
+const MAX_BUFFER_SIZE = 100 * 1024 * 1024; // 100MB limit for x32
 
 /**
  * Generate a short unique ID for extID
@@ -126,7 +126,7 @@ class STPlatform {
 
         this.socket
             .on('connect', () => {
-                console.info(`NT [${this.name}] Connected to ${this.url} (${this.arch})`);
+                console.info(`ST [${this.name}] Connected to ${this.url} (${this.arch})`);
                 this.connected = true;
                 this.errorCount = 0;
                 this.seenNotifyTokens.clear();
@@ -135,29 +135,29 @@ class STPlatform {
                 if (this.autoSubscribeChannels.length > 0) {
                     setTimeout(() => {
                         this.subscribe(this.autoSubscribeChannels)
-                            .then(() => console.info(`NT [${this.name}] Auto-subscribed: ${this.autoSubscribeChannels.join(', ')}`))
-                            .catch(err => console.error(`NT [${this.name}] Auto-subscribe failed:`, err.message));
+                            .then(() => console.info(`ST [${this.name}] Auto-subscribed: ${this.autoSubscribeChannels.join(', ')}`))
+                            .catch(err => console.error(`ST [${this.name}] Auto-subscribe failed:`, err.message));
                     }, AUTO_SUBSCRIBE_DELAY_MS);
                 }
             })
             .on('timeout', () => {
-                console.error(`NT [${this.name}] Socket timeout`);
+                console.error(`ST [${this.name}] Socket timeout`);
                 if (this.alive) this.reconnect();
             })
             .on('close', () => {
                 this.connected = false;
-                console.warn(`NT [${this.name}] Connection closed`);
+                console.warn(`ST [${this.name}] Connection closed`);
                 if (this.alive) this.reconnect();
             })
             .on('error', (err) => {
                 this.errorCount++;
-                console.error(`NT [${this.name}] Socket error (count: ${this.errorCount}):`, err.message);
+                console.error(`ST [${this.name}] Socket error (count: ${this.errorCount}):`, err.message);
 
                 // Don't reconnect too aggressively on repeated errors
                 if (this.errorCount < 10 && this.alive) {
                     this.reconnect();
                 } else if (this.errorCount >= 10) {
-                    console.error(`NT [${this.name}] Too many errors, stopping reconnection attempts`);
+                    console.error(`ST [${this.name}] Too many errors, stopping reconnection attempts`);
                     this.alive = false;
                 }
             })
@@ -178,26 +178,27 @@ class STPlatform {
 
             // Check buffer size limit (important for x32)
             if (this.recv.length + chunk.length > this.maxBufferSize) {
-                console.error(`NT [${this.name}] Buffer overflow protection triggered`);
+                console.error(`ST [${this.name}] Buffer overflow (${(this.recv.length / 1024 / 1024).toFixed(2)} MB). Resetting.`);
                 this.recv = ''; // Reset buffer
                 return;
             }
 
             this.recv += chunk;
 
-            const delimiterPos = this.recv.lastIndexOf('\r\n');
-            if (delimiterPos === -1) return;
+            let delimiterPos = this.recv.indexOf('\r\n');
 
-            const received = this.recv.slice(0, delimiterPos);
-            this.recv = this.recv.slice(delimiterPos + 2);
-            const tokens = received.split('\r\n');
+            while (delimiterPos !== -1) {
+                const message = this.recv.substring(0, delimiterPos);
+                this.recv = this.recv.substring(delimiterPos + 2);
 
-            for (const token of tokens) {
-                if (!token.trim()) continue;
-                this.processMessage(token);
+                if (message.trim()) {
+                    this.processMessage(message);
+                }
+
+                delimiterPos = this.recv.indexOf('\r\n');
             }
         } catch (err) {
-            console.error(`NT [${this.name}] handleData error:`, err.message);
+            console.error(`ST [${this.name}] handleData error:`, err.message);
             this.recv = ''; // Reset on error
         }
     }
@@ -208,7 +209,7 @@ class STPlatform {
             const cleaned = jsonRepair(token);
             parsed = JSON.parse(cleaned);
         } catch (e) {
-            console.error(`NT [${this.name}] Parse error:`, token.substring(0, 100), e.message);
+            console.error(`ST [${this.name}] Parse error:`, token.substring(0, 100), e.message);
             return;
         }
 
@@ -272,7 +273,7 @@ class STPlatform {
                 return;
             }
 
-            console.warn(`NT [${this.name}] Unknown array message:`, parsed);
+            console.warn(`ST [${this.name}] Unknown array message:`, parsed);
             return;
         }
 
@@ -304,7 +305,7 @@ class STPlatform {
             return;
         }
 
-        console.warn(`NT [${this.name}] Unknown message:`, parsed);
+        console.warn(`ST [${this.name}] Unknown message:`, parsed);
     }
 
     /**
@@ -341,7 +342,7 @@ class STPlatform {
         payload.__token = this.token;
 
         if (!this.connected) {
-            return Promise.reject(new Error(`NT [${this.name}] Not connected`));
+            return Promise.reject(new Error(`ST [${this.name}] Not connected`));
         }
 
         return new Promise((resolve, reject) => {
@@ -350,7 +351,7 @@ class STPlatform {
 
             const timeout = setTimeout(() => {
                 this.pendingRequests.delete(payload.extID);
-                reject(new Error(`NT [${this.name}] Timeout for extID: ${payload.extID}`));
+                reject(new Error(`ST [${this.name}] Timeout for extID: ${payload.extID}`));
             }, timeoutMs);
 
             this.pendingRequests.set(payload.extID, { resolve, reject, timeout });
@@ -362,7 +363,7 @@ class STPlatform {
                 if (Buffer.byteLength(message, 'utf8') > 65536) {
                     clearTimeout(timeout);
                     this.pendingRequests.delete(payload.extID);
-                    reject(new Error(`NT [${this.name}] Message too large`));
+                    reject(new Error(`ST [${this.name}] Message too large`));
                     return;
                 }
 
@@ -413,7 +414,7 @@ class STPlatform {
         // Clear pending requests with error
         for (const [extID, { reject, timeout }] of this.pendingRequests.entries()) {
             clearTimeout(timeout);
-            reject(new Error(`NT [${this.name}] Connection lost`));
+            reject(new Error(`ST [${this.name}] Connection lost`));
         }
         this.pendingRequests.clear();
 
@@ -423,7 +424,7 @@ class STPlatform {
 
         this._reconnectTimer = setTimeout(() => {
             delete this._reconnectTimer;
-            console.info(`NT [${this.name}] Reconnecting... (attempt ${this.errorCount + 1})`);
+            console.info(`ST [${this.name}] Reconnecting... (attempt ${this.errorCount + 1})`);
             this.createSocket();
         }, delay);
     }
@@ -439,7 +440,7 @@ class STPlatform {
         // Clear all pending requests
         for (const [extID, { reject, timeout }] of this.pendingRequests.entries()) {
             clearTimeout(timeout);
-            reject(new Error(`NT [${this.name}] Platform destroyed`));
+            reject(new Error(`ST [${this.name}] Platform destroyed`));
         }
 
         this.pendingRequests.clear();

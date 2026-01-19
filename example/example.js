@@ -20,7 +20,7 @@ console.log('=================================\n');
 const platform = new STPlatform(
     url,
     name,
-    { autoSubscribe: ['EURUSD'] },
+    { autoSubscribe: ['EURUSD', 'BTCUSD'] },
     null,
     null,
     token
