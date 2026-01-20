@@ -7,7 +7,14 @@ const STPlatform = require('../index');
 // Configuration
 const url = 'example.host:8080'; // Host and port for the ScaleTrade platform
 const name = 'ScaleTrade-example'; // Platform name
-const token = 'your-jwt-auth-token'; // Authentication token
+const token = ''; // Authentication token
+
+const options = {
+    RECONNECT_DELAY_MS: 4000, // optional
+    RESPONSE_TIMEOUT_MS: 30000, // optional
+    MAX_BUFFER_SIZE: 256 * 1024 * 1024, // optional Default: x64 - 1GB, x32 - 256MB
+    autoSubscribe: ['EURUSD', 'BTCUSD'] // optional
+};
 
 // System info
 console.log('\n========== SYSTEM INFO ==========');
@@ -20,7 +27,7 @@ console.log('=================================\n');
 const platform = new STPlatform(
     url,
     name,
-    { autoSubscribe: ['EURUSD', 'BTCUSD'] },
+    options,
     null,
     null,
     token

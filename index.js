@@ -1,5 +1,5 @@
 /**
- * scaletrade-server-api (Fixed for x32/x64 compatibility)
+ * scaletrade-server-api (Optimized for x32/x64)
  * High-performance TCP client for ScaleTrade platform
  */
 
@@ -7,12 +7,17 @@ const net = require('net');
 const events = require('events');
 const crypto = require('crypto');
 
-const RECONNECT_DELAY_MS = 4000;
-const RESPONSE_TIMEOUT_MS = 30000;
-const AUTO_SUBSCRIBE_DELAY_MS = 500;
-const SOCKET_KEEPALIVE = true;
-const SOCKET_NODELAY = true;
-const MAX_BUFFER_SIZE = 100 * 1024 * 1024; // 100MB limit for x32
+const IS_ARCH_64 = process.arch === 'x64' || process.arch === 'arm64';
+
+const DEFAULTS = {
+    RECONNECT_DELAY_MS: 4000,
+    RESPONSE_TIMEOUT_MS: 30000,
+    AUTO_SUBSCRIBE_DELAY_MS: 500,
+    SOCKET_KEEPALIVE: true,
+    SOCKET_NODELAY: true,
+    // x64 - 1GB, x32 - 256MB
+    MAX_BUFFER_SIZE: IS_ARCH_64 ? 1024 * 1024 * 1024 : 256 * 1024 * 1024
+};
 
 /**
  * Generate a short unique ID for extID
@@ -22,7 +27,6 @@ function generateExtID() {
     if (crypto.randomUUID) {
         return crypto.randomUUID().replace(/-/g, '').substring(0, 12);
     }
-    // Fallback - more reliable on x32
     const timestamp = Date.now().toString(36);
     const random = Math.random().toString(36).substring(2, 8);
     return (timestamp + random).substring(0, 12);
@@ -35,10 +39,6 @@ function generateExtID() {
  */
 function safeParseNumber(value) {
     if (typeof value === 'number') {
-        // Check if number is safe integer on x32
-        if (!Number.isSafeInteger(value) && Math.abs(value) > Number.MAX_SAFE_INTEGER) {
-            console.warn(`Unsafe integer detected: ${value}`);
-        }
         return value;
     }
     const parsed = Number(value);
@@ -53,15 +53,12 @@ function safeParseNumber(value) {
 function safeTimestamp(unixTimestamp) {
     if (!unixTimestamp) return null;
     try {
-        // Avoid overflow on x32 by checking range
         const ms = safeParseNumber(unixTimestamp) * 1000;
-        if (ms > 8640000000000000) { // Max valid JS date
-            console.warn(`Timestamp out of range: ${unixTimestamp}`);
+        if (ms > 8640000000000000 || ms < -8640000000000000) {
             return new Date();
         }
         return new Date(ms);
     } catch (e) {
-        console.error('Timestamp conversion error:', e.message);
         return new Date();
     }
 }
@@ -80,24 +77,39 @@ function jsonRepair(str) {
 }
 
 class STPlatform {
+    /**
+     * @param {string} url - host:port
+     * @param {string} name - Logger tag
+     * @param {Object} options - Configuration options
+     * @param {Object} broker - Broker context
+     * @param {Object} ctx - Global context
+     * @param {string} token - Auth token
+     * @param {events.EventEmitter} emitter - Custom emitter
+     */
     constructor(url, name, options = {}, broker, ctx, token, emitter = null) {
         this.name = name;
         this.url = url;
-        this.errorCount = 0;
         this.broker = broker || {};
         this.ctx = ctx || {};
-        this.ignoreEvents = options.ignoreEvents || false;
-        this.prefix = options.prefix || 'nor';
-        this.mode = options.mode || 'live';
         this.token = token;
+
+        this.config = { ...DEFAULTS, ...options };
+
+        this.ignoreEvents = options.ignoreEvents || false;
+        this.prefix = options.prefix || 'sct';
+        this.mode = options.mode || 'live';
+
         this.emitter = emitter || new events.EventEmitter();
         this.autoSubscribeChannels = Array.isArray(options.autoSubscribe) ? options.autoSubscribe : [];
+
         this.seenNotifyTokens = new Set();
         this.pendingRequests = new Map();
 
-        // x32 specific limits
-        this.maxBufferSize = MAX_BUFFER_SIZE;
-        this.arch = process.arch; // Store architecture info
+        this.errorCount = 0;
+        this.recv = '';
+        this.connected = false;
+        this.alive = true;
+        this.arch = process.arch;
 
         this.createSocket();
 
@@ -121,23 +133,22 @@ class STPlatform {
         this.seenNotifyTokens.clear();
 
         this.socket = new net.Socket();
-        this.socket.setKeepAlive(SOCKET_KEEPALIVE);
-        this.socket.setNoDelay(SOCKET_NODELAY);
+        this.socket.setKeepAlive(this.config.SOCKET_KEEPALIVE);
+        this.socket.setNoDelay(this.config.SOCKET_NODELAY);
 
         this.socket
             .on('connect', () => {
-                console.info(`ST [${this.name}] Connected to ${this.url} (${this.arch})`);
+                console.info(`ST [${this.name}] Connected to ${this.url} (${this.arch}, Limit: ${(this.config.MAX_BUFFER_SIZE/1024/1024).toFixed(0)}MB)`);
                 this.connected = true;
                 this.errorCount = 0;
                 this.seenNotifyTokens.clear();
 
-                // Auto-subscribe after connection
                 if (this.autoSubscribeChannels.length > 0) {
                     setTimeout(() => {
                         this.subscribe(this.autoSubscribeChannels)
-                            .then(() => console.info(`ST [${this.name}] Auto-subscribed: ${this.autoSubscribeChannels.join(', ')}`))
+                            .then(() => console.info(`ST [${this.name}] Auto-subscribed: ${this.autoSubscribeChannels.length} channels`))
                             .catch(err => console.error(`ST [${this.name}] Auto-subscribe failed:`, err.message));
-                    }, AUTO_SUBSCRIBE_DELAY_MS);
+                    }, this.config.AUTO_SUBSCRIBE_DELAY_MS);
                 }
             })
             .on('timeout', () => {
@@ -151,13 +162,11 @@ class STPlatform {
             })
             .on('error', (err) => {
                 this.errorCount++;
-                console.error(`ST [${this.name}] Socket error (count: ${this.errorCount}):`, err.message);
-
-                // Don't reconnect too aggressively on repeated errors
-                if (this.errorCount < 10 && this.alive) {
-                    this.reconnect();
-                } else if (this.errorCount >= 10) {
-                    console.error(`ST [${this.name}] Too many errors, stopping reconnection attempts`);
+                console.error(`ST [${this.name}] Socket error (${this.errorCount}): ${err.message}`);
+                if (this.alive && this.errorCount < 20) {
+                    // ...
+                } else if (this.errorCount >= 20) {
+                    console.error(`ST [${this.name}] Too many errors, giving up.`);
                     this.alive = false;
                 }
             })
@@ -173,13 +182,12 @@ class STPlatform {
      */
     handleData(data) {
         try {
-            // Convert buffer to string safely
             const chunk = data.toString('utf8');
 
-            // Check buffer size limit (important for x32)
-            if (this.recv.length + chunk.length > this.maxBufferSize) {
-                console.error(`ST [${this.name}] Buffer overflow (${(this.recv.length / 1024 / 1024).toFixed(2)} MB). Resetting.`);
-                this.recv = ''; // Reset buffer
+            if (this.recv.length + chunk.length > this.config.MAX_BUFFER_SIZE) {
+                console.error(`ST [${this.name}] CRITICAL: Buffer overflow (${(this.recv.length / 1024 / 1024).toFixed(2)} MB). Resetting buffer.`);
+                this.recv = '';
+                // this.socket.destroy();
                 return;
             }
 
@@ -192,7 +200,11 @@ class STPlatform {
                 this.recv = this.recv.substring(delimiterPos + 2);
 
                 if (message.trim()) {
-                    this.processMessage(message);
+                    if (!IS_ARCH_64 && this.recv.length > 10000) {
+                        setImmediate(() => this.processMessage(message));
+                    } else {
+                        this.processMessage(message);
+                    }
                 }
 
                 delimiterPos = this.recv.indexOf('\r\n');
@@ -205,12 +217,17 @@ class STPlatform {
 
     processMessage(token) {
         let parsed;
+
         try {
-            const cleaned = jsonRepair(token);
-            parsed = JSON.parse(cleaned);
+            parsed = JSON.parse(token);
         } catch (e) {
-            console.error(`ST [${this.name}] Parse error:`, token.substring(0, 100), e.message);
-            return;
+            try {
+                const cleaned = jsonRepair(token);
+                parsed = JSON.parse(cleaned);
+            } catch (e2) {
+                console.error(`ST [${this.name}] JSON Parse Error. Len: ${token.length}`);
+                return;
+            }
         }
 
         // === ARRAY MESSAGES ===
@@ -220,16 +237,14 @@ class STPlatform {
             // Quote: ["t", symbol, bid, ask, timestamp]
             if (marker === 't' && parsed.length >= 4) {
                 const [, symbol, bid, ask, timestamp] = parsed;
-                if (typeof symbol === 'string' && typeof bid === 'number' && typeof ask === 'number') {
-                    const quote = {
-                        symbol,
-                        bid: safeParseNumber(bid),
-                        ask: safeParseNumber(ask),
-                        timestamp: safeTimestamp(timestamp)
-                    };
-                    this.emit('quote', quote);
-                    this.emit(`quote:${symbol.toUpperCase()}`, quote);
-                }
+                const quote = {
+                    symbol,
+                    bid: safeParseNumber(bid),
+                    ask: safeParseNumber(ask),
+                    timestamp: safeTimestamp(timestamp)
+                };
+                this.emit('quote', quote);
+                this.emit(`quote:${symbol.toUpperCase()}`, quote);
                 return;
             }
 
@@ -315,8 +330,7 @@ class STPlatform {
      */
     emit(name, data) {
         if (!this.ignoreEvents) {
-            // Use setImmediate to avoid blocking on x32
-            setImmediate(() => this.emitter.emit(name, data));
+            this.emitter.emit(name, data);
         }
     }
 
@@ -346,8 +360,7 @@ class STPlatform {
         }
 
         return new Promise((resolve, reject) => {
-            // Use Math.min to ensure timeout doesn't overflow on x32
-            const timeoutMs = Math.min(RESPONSE_TIMEOUT_MS, 2147483647);
+            const timeoutMs = this.config.RESPONSE_TIMEOUT_MS;
 
             const timeout = setTimeout(() => {
                 this.pendingRequests.delete(payload.extID);
@@ -359,15 +372,7 @@ class STPlatform {
             try {
                 const message = JSON.stringify(payload) + "\r\n";
 
-                // Check message size
-                if (Buffer.byteLength(message, 'utf8') > 65536) {
-                    clearTimeout(timeout);
-                    this.pendingRequests.delete(payload.extID);
-                    reject(new Error(`ST [${this.name}] Message too large`));
-                    return;
-                }
-
-                this.socket.write(message, 'utf8', (err) => {
+                const success = this.socket.write(message, 'utf8', (err) => {
                     if (err) {
                         clearTimeout(timeout);
                         this.pendingRequests.delete(payload.extID);
@@ -411,16 +416,16 @@ class STPlatform {
         this.socket.destroy();
         this.seenNotifyTokens.clear();
 
-        // Clear pending requests with error
         for (const [extID, { reject, timeout }] of this.pendingRequests.entries()) {
             clearTimeout(timeout);
-            reject(new Error(`ST [${this.name}] Connection lost`));
+            reject(new Error(`ST [${this.name}] Connection lost during request`));
         }
         this.pendingRequests.clear();
 
-        // Exponential backoff with safe max delay for x32
-        const baseDelay = RECONNECT_DELAY_MS * Math.pow(1.5, this.errorCount - 1);
-        const delay = Math.min(baseDelay, 30000);
+        const baseDelay = this.config.RECONNECT_DELAY_MS;
+        const delay = Math.min(baseDelay * Math.pow(1.2, this.errorCount), 30000);
+
+        console.info(`ST [${this.name}] Reconnecting in ${(delay/1000).toFixed(1)}s...`);
 
         this._reconnectTimer = setTimeout(() => {
             delete this._reconnectTimer;
